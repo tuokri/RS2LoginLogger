@@ -1,0 +1,15 @@
+`define lllog(msg, cond, tag) \
+    `log(self.class.name $ "::" $ GetFuncName() $ "(): " $ `msg, \
+    `cond, \
+    `if(`tag) name("LoginLogger-" $ string(`tag)) `else 'LoginLogger' `endif)
+
+`define llslog(msg, cond, tag) \
+    `log(default.class.name $ "::" $ GetFuncName() $ "(): " $ `msg, \
+    `cond, \
+    `if(`tag) name("LoginLogger-" $ string(`tag)) `else 'LoginLogger' `endif)
+
+`define llwarn(msg, cond) `lllog(`msg, `cond, 'WARNING')
+`define llerror(msg, cond) `lllog(`msg, `cond, 'ERROR')
+
+`define llswarn(msg, cond) `llslog(`msg, `cond, 'WARNING')
+`define llserror(msg, cond) `llslog(`msg, `cond, 'ERROR')

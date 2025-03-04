@@ -27,33 +27,79 @@
 // WebAdmin to enable.
 class LoginLogger extends Actor;
 
-var OnlineGameInterface GameInterface;
+const MAX_RETRIES = 2;
 
-function OnRegisterPlayerComplete(name SessionName, UniqueNetId PlayerId, bool bWasSuccessful)
+struct LoginLogInfo
 {
-    local PlayerController PC;
-    local string UniqueNetIdStr;
-    local string SteamID64String;
+    var int NumRetries;
+    var UniqueNetId PlayerId;
+};
 
-    if (!bWasSuccessful)
+var OnlineGameInterface GameInterface;
+var array<LoginLogInfo> LoginLogInfos;
+
+function LogPlayerLogins()
+{
+    local int i;
+    local bool bLogged;
+
+    for (i = 0; i < LoginLogInfos.Length; ++i)
     {
-        return;
+        bLogged = LogPlayerLogin(i);
+        if (bLogged)
+        {
+            LoginLogInfos.Remove(i, 1);
+            --i;
+        }
+    }
+}
+
+function bool LogPlayerLogin(int Index)
+{
+    local UniqueNetId PlayerId;
+    local string UniqueNetIdStr;
+    local PlayerController PC;
+
+    if (LoginLogInfos[Index].NumRetries >= MAX_RETRIES)
+    {
+        return False;
     }
 
+    PlayerId = LoginLogInfos[Index].PlayerId;
     UniqueNetIdStr = class'OnlineSubsystem'.static.UniqueNetIdToString(PlayerId);
 
     PC = class'PlayerController'.static.GetPlayerControllerFromNetId(PlayerId);
     if (PC == None)
     {
         `llwarn("failed to get PlayerController for ID" @ UniqueNetIdStr);
-        return;
+        return True; // Don't retry in this case.
     }
 
-    SteamID64String = class'ROSteamUtils'.static.UniqueIdToSteamId64(PlayerId);
+    // Data not ready yet? Try again later.
+    if (PC.GetPlayerNetworkAddress() == "")
+    {
+        LoginLogInfos[Index].NumRetries += 1;
+        return False;
+    }
 
-    `lllog("[RegisterPlayer]" @ "UniqueID:" @ UniqueNetIdStr @ SteamID64String
+    `lllog("[RegisterPlayer]" @ "UniqueID:" @ UniqueNetIdStr
+        @ class'ROSteamUtils'.static.UniqueIdToSteamId64(PlayerId)
         @ "PlayerIP:" @ PC.GetPlayerNetworkAddress() @ "PlayerName:" @ PC.PlayerReplicationInfo.PlayerName
     );
+
+    return True;
+}
+
+function OnRegisterPlayerComplete(name SessionName, UniqueNetId PlayerId, bool bWasSuccessful)
+{
+    if (bWasSuccessful)
+    {
+        // Process later since all data such as network address and player name
+        // are not available at this time.
+        LoginLogInfos.Length = LoginLogInfos.Length + 1;
+        LoginLogInfos[LoginLogInfos.Length].NumRetries = 0;
+        LoginLogInfos[LoginLogInfos.Length].PlayerId = PlayerId;
+    }
 }
 
 event PreBeginPlay()
@@ -76,6 +122,7 @@ event PreBeginPlay()
     }
 
     GameInterface.AddRegisterPlayerCompleteDelegate(OnRegisterPlayerComplete);
+    SetTimer(0.2, True, NameOf(LogPlayerLogins));
 }
 
 event Destroyed()
@@ -85,5 +132,16 @@ event Destroyed()
     if (GameInterface != None)
     {
         GameInterface.ClearRegisterPlayerCompleteDelegate(OnRegisterPlayerComplete);
+    }
+}
+
+event Tick(float DeltaTime)
+{
+    super.Tick(DeltaTime);
+
+    // Prevent leak during seamless travel.
+    if (WorldInfo.NextURL != "" || WorldInfo.IsInSeamlessTravel())
+    {
+        Destroy();
     }
 }

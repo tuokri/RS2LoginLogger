@@ -27,7 +27,7 @@
 // WebAdmin to enable.
 class LoginLogger extends Actor;
 
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 10;
 
 struct LoginLogInfo
 {
@@ -35,13 +35,15 @@ struct LoginLogInfo
     var UniqueNetId PlayerId;
 };
 
-var OnlineGameInterface GameInterface;
+var OnlineGameInterfaceSteamworks GameInterface;
 var array<LoginLogInfo> LoginLogInfos;
 
 function LogPlayerLogins()
 {
     local int i;
     local bool bLogged;
+
+    // `lldebug("LoginLogInfos.Length=" $ LoginLogInfos.Length);
 
     for (i = 0; i < LoginLogInfos.Length; ++i)
     {
@@ -60,10 +62,9 @@ function bool LogPlayerLogin(int Index)
     local string UniqueNetIdStr;
     local PlayerController PC;
 
-    if (LoginLogInfos[Index].NumRetries >= MAX_RETRIES)
-    {
-        return False;
-    }
+    `lldebug("Index=" $ Index);
+
+    LoginLogInfos[Index].NumRetries += 1;
 
     PlayerId = LoginLogInfos[Index].PlayerId;
     UniqueNetIdStr = class'OnlineSubsystem'.static.UniqueNetIdToString(PlayerId);
@@ -75,10 +76,12 @@ function bool LogPlayerLogin(int Index)
         return True; // Don't retry in this case.
     }
 
-    // Data not ready yet? Try again later.
-    if (PC.GetPlayerNetworkAddress() == "")
+    // Data not ready yet? Try again later. But if we're over max retries,
+    // log the empty address anyway.
+    // TODO: investigate why the address is empty sometimes. Happens on LAN only?
+    if (PC.GetPlayerNetworkAddress() == "" && LoginLogInfos[Index].NumRetries < MAX_RETRIES)
     {
-        LoginLogInfos[Index].NumRetries += 1;
+        `lldebug("player network address not ready yet");
         return False;
     }
 
@@ -87,11 +90,20 @@ function bool LogPlayerLogin(int Index)
         @ "PlayerIP:" @ PC.GetPlayerNetworkAddress() @ "PlayerName:" @ PC.PlayerReplicationInfo.PlayerName
     );
 
+    if (LoginLogInfos[Index].NumRetries >= MAX_RETRIES)
+    {
+        `lldebug("max retries exceeded");
+    }
+
     return True;
 }
 
 function OnRegisterPlayerComplete(name SessionName, UniqueNetId PlayerId, bool bWasSuccessful)
 {
+    `lldebug("SessionName=" $ SessionName
+        @ "PlayerId=" $ class'OnlineSubsystem'.static.UniqueNetIdToString(PlayerId)
+        @ "bWasSuccessful=" $ bWasSuccessful);
+
     if (bWasSuccessful)
     {
         // Process later since all data such as network address and player name
@@ -114,7 +126,7 @@ event PreBeginPlay()
         `llerror("failed to get OnlineSubsystem");
         return;
     }
-    GameInterface = OnlineSub.GameInterface;
+    GameInterface =OnlineGameInterfaceSteamworks(OnlineSub.GameInterface);
     if (GameInterface == None)
     {
         `llerror("failed to get GameInterface");
@@ -123,16 +135,8 @@ event PreBeginPlay()
 
     GameInterface.AddRegisterPlayerCompleteDelegate(OnRegisterPlayerComplete);
     SetTimer(0.2, True, NameOf(LogPlayerLogins));
-}
 
-event Destroyed()
-{
-    super.Destroyed();
-
-    if (GameInterface != None)
-    {
-        GameInterface.ClearRegisterPlayerCompleteDelegate(OnRegisterPlayerComplete);
-    }
+    `lllog("initialized");
 }
 
 event Tick(float DeltaTime)
@@ -142,6 +146,16 @@ event Tick(float DeltaTime)
     // Prevent leak during seamless travel.
     if (WorldInfo.NextURL != "" || WorldInfo.IsInSeamlessTravel())
     {
+        `lldebug("destroying self");
+
+        if (GameInterface != None)
+        {
+            `lldebug("unregistering delegates");
+            GameInterface.ClearRegisterPlayerCompleteDelegate(OnRegisterPlayerComplete);
+
+            GameInterface.RegisterPlayerCompleteDelegates.Length = 0;
+        }
+
         Destroy();
     }
 }

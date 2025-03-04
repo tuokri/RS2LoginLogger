@@ -1,3 +1,5 @@
+`define LOGIN_LOGGER_DEBUG 1
+
 `define lllog(msg, cond, tag) \
     `log(self.class.name $ "::" $ GetFuncName() $ "(): " $ `msg, \
     `cond, \
@@ -13,3 +15,11 @@
 
 `define llswarn(msg, cond) `llslog(`msg, `cond, 'WARNING')
 `define llserror(msg, cond) `llslog(`msg, `cond, 'ERROR')
+
+`if(`isdefined(LOGIN_LOGGER_DEBUG))
+    `define lldebug(msg, cond) `lllog(`msg, `cond, 'DEBUG')
+    `define llsdebug(msg, cond) `llslog(`msg, `cond, 'DEBUG')
+`else
+    `define lldebug(msg, cond, tag)
+    `define llsdebug(msg, cond, tag)
+`endif

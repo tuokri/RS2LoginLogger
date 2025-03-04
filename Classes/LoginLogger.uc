@@ -58,9 +58,9 @@ function LogPlayerLogins()
 
 function bool LogPlayerLogin(int Index)
 {
-    local UniqueNetId PlayerId;
     local string UniqueNetIdStr;
     local PlayerController PC;
+    local UniqueNetId PlayerId;
 
     `lldebug("Index=" $ Index);
 
@@ -68,6 +68,7 @@ function bool LogPlayerLogin(int Index)
 
     PlayerId = LoginLogInfos[Index].PlayerId;
     UniqueNetIdStr = class'OnlineSubsystem'.static.UniqueNetIdToString(PlayerId);
+    `lldebug("UniqueNetIdStr=" $ UniqueNetIdStr);
 
     PC = class'PlayerController'.static.GetPlayerControllerFromNetId(PlayerId);
     if (PC == None)
@@ -79,9 +80,10 @@ function bool LogPlayerLogin(int Index)
     // Data not ready yet? Try again later. But if we're over max retries,
     // log the empty address anyway.
     // TODO: investigate why the address is empty sometimes. Happens on LAN only?
+    // TODO: is this check actually completely unnecessary?
     if (PC.GetPlayerNetworkAddress() == "" && LoginLogInfos[Index].NumRetries < MAX_RETRIES)
     {
-        `lldebug("player network address not ready yet");
+        `lldebug("player data not ready yet");
         return False;
     }
 
@@ -100,6 +102,8 @@ function bool LogPlayerLogin(int Index)
 
 function OnRegisterPlayerComplete(name SessionName, UniqueNetId PlayerId, bool bWasSuccessful)
 {
+    local int Idx;
+
     `lldebug("SessionName=" $ SessionName
         @ "PlayerId=" $ class'OnlineSubsystem'.static.UniqueNetIdToString(PlayerId)
         @ "bWasSuccessful=" $ bWasSuccessful);
@@ -108,9 +112,10 @@ function OnRegisterPlayerComplete(name SessionName, UniqueNetId PlayerId, bool b
     {
         // Process later since all data such as network address and player name
         // are not available at this time.
+        Idx = LoginLogInfos.Length;
         LoginLogInfos.Length = LoginLogInfos.Length + 1;
-        LoginLogInfos[LoginLogInfos.Length].NumRetries = 0;
-        LoginLogInfos[LoginLogInfos.Length].PlayerId = PlayerId;
+        LoginLogInfos[Idx].NumRetries = 0;
+        LoginLogInfos[Idx].PlayerId = PlayerId;
     }
 }
 
@@ -126,7 +131,7 @@ event PreBeginPlay()
         `llerror("failed to get OnlineSubsystem");
         return;
     }
-    GameInterface =OnlineGameInterfaceSteamworks(OnlineSub.GameInterface);
+    GameInterface = OnlineGameInterfaceSteamworks(OnlineSub.GameInterface);
     if (GameInterface == None)
     {
         `llerror("failed to get GameInterface");
@@ -144,7 +149,11 @@ event Tick(float DeltaTime)
     super.Tick(DeltaTime);
 
     // Prevent leak during seamless travel.
-    if (WorldInfo.NextURL != "" || WorldInfo.IsInSeamlessTravel())
+    if (WorldInfo.NextSwitchCountdown == 0
+        || WorldInfo.NextURL != ""
+        || WorldInfo.IsInSeamlessTravel()
+        || WorldInfo.IsMapChangeReady()
+    )
     {
         `lldebug("destroying self");
 
@@ -152,7 +161,6 @@ event Tick(float DeltaTime)
         {
             `lldebug("unregistering delegates");
             GameInterface.ClearRegisterPlayerCompleteDelegate(OnRegisterPlayerComplete);
-
             GameInterface.RegisterPlayerCompleteDelegates.Length = 0;
         }
 

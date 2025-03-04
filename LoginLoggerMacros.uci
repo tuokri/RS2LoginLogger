@@ -1,4 +1,4 @@
-`define LOGIN_LOGGER_DEBUG 1
+// `define LOGIN_LOGGER_DEBUG 1
 
 `define lllog(msg, cond, tag) \
     `log(self.class.name $ "::" $ GetFuncName() $ "(): " $ `msg, \
